@@ -102,4 +102,21 @@ describe('SecretMessages.test.js', () => {
     }
   }
 
+  async function performAddEligibleAddress(senderAcc: PublicKey) {
+    const { address, witness, newEligibleAddresses } = initAddEligibleAddress(
+      senderAcc,
+      eligibleAddresses
+    );
+
+    const tx = await Mina.transaction(deployerAcc, () => {
+      zkApp.addEligibleAddress(address, witness);
+    });
+    await tx.prove();
+    await tx.sign([deployerAccPrivKey]).send();
+
+    eligibleAddresses.push(senderAcc);
+
+    return { address, witness, newEligibleAddresses };
+  }
+
 });
