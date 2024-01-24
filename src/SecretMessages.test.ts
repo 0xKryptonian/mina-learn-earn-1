@@ -119,4 +119,51 @@ describe('SecretMessages.test.js', () => {
     return { address, witness, newEligibleAddresses };
   }
 
+  async function performDepositMessage(senderAcc: PublicKey, message: Field) {
+    const {
+      address,
+      message: msg,
+      addressWitness,
+      messageWitness,
+    } = await initDepositMessage(senderAcc, message);
+
+    const tx = await Mina.transaction(deployerAcc, () => {
+      zkApp.depositMessage(
+        address,
+        msg,
+        addressWitness,
+        messageWitness,
+        nullifier
+      );
+    });
+    await tx.prove();
+    await tx.sign([deployerAccPrivKey]).send();
+
+    messages.set(senderAcc, message);
+    messageTree.setLeaf(BigInt(messages.size), msg.hash());
+  }
+
+  async function handleMultipleAddEligibleAddresses(
+    accounts: Array<SenderAccountInfo>
+  ) {
+    for (const senderAcc of accounts) {
+      const { address, witness } = initAddEligibleAddress(
+        senderAcc.publicKey,
+        eligibleAddresses
+      );
+
+      const txAdd = await Mina.transaction(deployerAcc, () => {
+        zkApp.addEligibleAddress(address, witness);
+      });
+
+      await txAdd.prove();
+      await txAdd.sign([deployerAccPrivKey, zkAppPrivKey]).send();
+
+      // After the transaction is sent and confirmed, push the publicKey to eligibleAddresses
+      eligibleAddresses.push(senderAcc.publicKey);
+    }
+
+    return eligibleAddresses;
+  }
+
 });
