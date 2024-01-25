@@ -10,6 +10,9 @@ import {
   Struct,
   Bool,
   Provable,
+  Nullifier,
+  MerkleMapWitness,
+  MerkleMap,
 } from 'o1js';
 
 class ElligibleAddressMerkleWitness extends MerkleWitness(8) {}
@@ -35,23 +38,22 @@ class Message extends Struct({
 export class MessageManager extends SmartContract {
   @state(Field) eligibleAddressesCommitment = State<Field>();
   @state(Field) messagesCommitment = State<Field>();
+  @state(Field) nullifierRoot = State<Field>();
+  @state(Field) nullifierMessage = State<Field>();
 
   events = {
     MessageDeposited: Field,
   };
-
-  @method init() {
-    super.init();
-    this.eligibleAddressesCommitment.set(Field(0));
-    this.messagesCommitment.set(Field(0));
-  }
 
   @method addEligibleAddress(
     address: Address,
     path: ElligibleAddressMerkleWitness
   ) {
     const count = path.calculateIndex();
-    count.assertLessThan(Field(100));
+    count.assertLessThan(
+      Field(100),
+      'Maximum number of eligible addresses reached'
+    );
 
     let newCommitment = path.calculateRoot(address.hash());
     this.eligibleAddressesCommitment.set(newCommitment);
@@ -61,15 +63,32 @@ export class MessageManager extends SmartContract {
     address: Address,
     message: Message,
     eligibleAddressPath: ElligibleAddressMerkleWitness,
-    messagePath: MessageMerkleWitness
+    messagePath: MessageMerkleWitness,
+    nullifier: Nullifier
   ) {
+    let nullifierRoot = this.nullifierRoot.getAndRequireEquals();
+    let nullifierMessage = this.nullifierMessage.getAndRequireEquals();
+    nullifier.verify([nullifierMessage]);
 
+    let nullifierWitness = Provable.witness(MerkleMapWitness, () =>
+      NullifierTree.getWitness(nullifier.key())
+    );
+
+    // we compute the current root and make sure the entry is set to 0 (= unused)
+    nullifier.assertUnused(nullifierWitness, nullifierRoot);
+
+    // we set the nullifier to 1 (= used) and calculate the new root
+    let newRoot = nullifier.setUsed(nullifierWitness);
+    this.nullifierRoot.set(newRoot);
+
+    // we fetch the on-chain commitment for the Eligible Addresses Merkle Tree
     const commitment = this.eligibleAddressesCommitment.getAndRequireEquals();
 
-    eligibleAddressPath.calculateRoot(address.hash()).assertEquals(commitment);
-
-    console.log('before message.data.toBits().slice(0, 6).reverse();');
-    Provable.log(message.data);
+    // address is within the committed Eligible Addresses Merkle Tree
+    eligibleAddressPath.calculateRoot(address.hash()).assertEquals(
+        commitment,
+        'address is not in the committed Eligible Addresses Merkle Tree'
+      );
 
     // Enforce flag rules
     const flags: Bool[] = message.data.toBits().slice(0, 6).reverse();
@@ -79,10 +98,6 @@ export class MessageManager extends SmartContract {
     const f4 = flags[3];
     const f5 = flags[4];
     const f6 = flags[5];
-
-    console.log('after  message.data.toBits().slice(0, 6).reverse();');
-    Provable.log(message.data);
-
 
     // If flag 1 is true, then all other flags must be false
     Bool.or(
@@ -109,6 +124,7 @@ export class MessageManager extends SmartContract {
 
     // Emits a MessageDeposited event
     this.emitEvent('MessageDeposited', message.data);
-    // this.emitEvent('MessageDeposited', message.hash());
   }
 }
+
+export const NullifierTree = new MerkleMap();
