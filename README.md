@@ -1,4 +1,6 @@
-# Mina zkApp: L2e Challenge 1
+# Mina zkApp: Challenge 1
+
+Learn to Earn Challenge #1 Solution
 
 This template uses TypeScript.
 
